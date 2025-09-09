@@ -17,6 +17,7 @@ const path = require("path");
 const fs = require("fs");
 const { execFile } = require("node:child_process");
 const shellQuote = require("shell-quote");
+const rateLimit = require("express-rate-limit");
 const app = express();
 
 app.use(bodyParser.json());
@@ -25,7 +26,13 @@ app.use(bodyParser.text({ type: "application/xml" }));
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-app.post("/ufo/upload", upload.single("file"), (req, res) => {
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // limit each IP to 5 uploads per minute
+  message: "Too many uploads, please try again later.",
+});
+
+app.post("/ufo/upload", uploadLimiter, upload.single("file"), (req, res) => {
   if (!req.file) {
     return res.status(400).send("No file uploaded.");
   }
