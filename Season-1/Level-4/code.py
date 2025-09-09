@@ -232,14 +232,26 @@ class DB_CRUD_ops(object):
             res += "[QUERY] " + query + "\n"
             if ';' in query:
                 res += "[SCRIPT EXECUTION]"
-                cur.executescript(query)
-                db_con.commit()
+                # Split into statements and execute each in turn, only allowing SELECT statements
+                for stmt in filter(None, [q.strip() for q in query.split(';')]):
+                    # Very basic check: allow only SELECT statements (case-insensitive)
+                    if not stmt.lower().startswith('select'):
+                        res += f"[SKIPPED/REJECTED] Only SELECT statements are allowed: {stmt}\n"
+                        continue
+                    cur.execute(stmt)
+                    db_con.commit()
+                    query_outcome = cur.fetchall()
+                    for result in query_outcome:
+                        res += "[RESULT] " + str(result)
             else:
-                cur.execute(query)
-                db_con.commit()
-                query_outcome = cur.fetchall()
-                for result in query_outcome:
-                    res += "[RESULT] " + str(result)
+                if query.strip().lower().startswith('select'):
+                    cur.execute(query)
+                    db_con.commit()
+                    query_outcome = cur.fetchall()
+                    for result in query_outcome:
+                        res += "[RESULT] " + str(result)
+                else:
+                    res += f"[SKIPPED/REJECTED] Only SELECT statements are allowed: {query}\n"
             return res
 
         except sqlite3.Error as e:
