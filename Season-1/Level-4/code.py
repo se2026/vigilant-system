@@ -12,6 +12,7 @@ the tests.py again to recreate it.
 import sqlite3
 import os
 from flask import Flask, request
+import re
 
 ### Unrelated to the exercise -- Starts here -- Please ignore
 app = Flask(__name__)
@@ -219,7 +220,18 @@ class DB_CRUD_ops(object):
     # Example: SELECT price FROM stocks WHERE symbol = 'MSFT';
     #          SELECT * FROM stocks WHERE symbol = 'MSFT'
     def exec_user_script(self, query):
-        # building database from scratch as it is more suitable for the purpose of the lab
+        # Only allow:
+        # - SELECT price FROM stocks WHERE symbol = 'xxx'
+        # - SELECT * FROM stocks WHERE symbol = 'xxx'
+        # Prevent SQL injection by validating query pattern and using parameters
+        def match_safe_select(stmt):
+            # Acceptable SELECT statement regex (single quotes only, prevents injection)
+            m = re.match(r"^select\s+(price|\*)\s+from\s+stocks\s+where\s+symbol\s*=\s*'([^']+)'\s*$", stmt.strip(), re.IGNORECASE)
+            if m:
+                select_field = m.group(1)
+                symbol = m.group(2)
+                return select_field, symbol
+            return None
         db = Create()
         con = Connect()
         try:
@@ -227,35 +239,37 @@ class DB_CRUD_ops(object):
             db_path = os.path.join(path, 'level-4.db')
             db_con = con.create_connection(db_path)
             cur = db_con.cursor()
-
             res = "[METHOD EXECUTED] exec_user_script\n"
             res += "[QUERY] " + query + "\n"
             if ';' in query:
                 res += "[SCRIPT EXECUTION]"
-                # Split into statements and execute each in turn, only allowing SELECT statements
+                # Split into statements and execute each in turn, only allowing safe SELECT statements
                 for stmt in filter(None, [q.strip() for q in query.split(';')]):
-                    # Very basic check: allow only SELECT statements (case-insensitive)
-                    if not stmt.lower().startswith('select'):
-                        res += f"[SKIPPED/REJECTED] Only SELECT statements are allowed: {stmt}\n"
+                    m = match_safe_select(stmt)
+                    if not m:
+                        res += f"[SKIPPED/REJECTED] Only SELECT * or SELECT price FROM stocks WHERE symbol ='...' statements are allowed: {stmt}\n"
                         continue
-                    cur.execute(stmt)
-                    db_con.commit()
+                    select_field, symbol = m
+                    safe_query = f"SELECT {select_field} FROM stocks WHERE symbol = ?"
+                    cur.execute(safe_query, (symbol,))
+                    # No db_con.commit() for SELECTs
                     query_outcome = cur.fetchall()
                     for result in query_outcome:
                         res += "[RESULT] " + str(result)
             else:
-                if query.strip().lower().startswith('select'):
-                    cur.execute(query)
-                    db_con.commit()
+                stmt = query.strip()
+                m = match_safe_select(stmt)
+                if m:
+                    select_field, symbol = m
+                    safe_query = f"SELECT {select_field} FROM stocks WHERE symbol = ?"
+                    cur.execute(safe_query, (symbol,))
                     query_outcome = cur.fetchall()
                     for result in query_outcome:
                         res += "[RESULT] " + str(result)
                 else:
-                    res += f"[SKIPPED/REJECTED] Only SELECT statements are allowed: {query}\n"
+                    res += f"[SKIPPED/REJECTED] Only SELECT * or SELECT price FROM stocks WHERE symbol ='...' statements are allowed: {query}\n"
             return res
-
         except sqlite3.Error as e:
             print(f"ERROR: {e}")
-
         finally:
             db_con.close()
