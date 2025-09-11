@@ -15,6 +15,7 @@ const libxmljs = require("libxmljs");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const sanitize = require("sanitize-filename");
 const { execFile } = require("node:child_process");
 const shellQuote = require("shell-quote");
 const rateLimit = require("express-rate-limit");
@@ -37,9 +38,22 @@ app.post("/ufo/upload", uploadLimiter, upload.single("file"), (req, res) => {
     return res.status(400).send("No file uploaded.");
   }
 
+  // Ensure uploads directory exists
+  const uploadsDir = path.join(__dirname, "uploads");
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
   console.log("Received uploaded file:", req.file.originalname);
 
-  const uploadedFilePath = path.join(__dirname, req.file.originalname);
+  // Sanitize filename
+  let safeFilename = sanitize(req.file.originalname);
+  if (!safeFilename) {
+    // Fallback: use timestamp if filename is fully sanitized away
+    safeFilename = `file-${Date.now()}`;
+  }
+
+  const uploadedFilePath = path.join(uploadsDir, safeFilename);
   fs.writeFileSync(uploadedFilePath, req.file.buffer);
 
   res.status(200).send("File uploaded successfully.");
